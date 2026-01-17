@@ -1,4 +1,4 @@
-# Bengali Jyotish Library
+# Indian Vedic Jyotish Library
 
 A Python library for accurate Indian Astrology calculations, focusing on **Drik Siddhanta** and **Bengali Panjika** rules.
 
@@ -19,7 +19,7 @@ pip install .
 
 ```python
 from datetime import datetime
-from bengali_jyotish import Panchang
+from indian_vedic_jyotish import Panchang
 
 dt = datetime(2024, 4, 14, 10, 0, 0) # Poila Boishakh
 p = Panchang(dt)

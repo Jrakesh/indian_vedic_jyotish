@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 
 setup(
-    name="bengali_jyotish",
+    name="indian_vedic_jyotish",
     version="0.1.0",
     description="A Python library for accurate Indian Astrology calculations, focusing on Drik Siddhanta and Bengali Panjika rules.",
     author="Rakesh",
