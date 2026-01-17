@@ -1,6 +1,7 @@
 import swisseph as swe
 import pytz
 from datetime import datetime
+from .utils import normalize_degrees
 
 # Set Ayanamsa to Lahiri (Chitra Paksha) - Standard for Indian Astrology
 swe.set_sid_mode(swe.SIDM_LAHIRI)
@@ -38,62 +39,82 @@ class Ephemeris:
     @staticmethod
     def get_sunrise_sunset(dt: datetime, lat: float, lon: float):
         """
-        Calculate sunrise and sunset for a given date and location.
+        Calculate sunrise and sunset for a given date and location using iterative search.
         Returns (sunrise_dt, sunset_dt) as datetime objects or None.
         """
-        # Start search from midnight of the given date
+        # Target altitude for sunrise/sunset (center of disc) with refraction
+        # Standard refraction is 34 arcmin = 0.5667 deg.
+        # Sun semi-diameter is ~16 arcmin = 0.2667 deg.
+        # Upper limb rise: -0.8333 deg (-50 arcmin).
+        TARGET_ALT = -0.8333
+        
+        def get_sun_alt(t_jd):
+            # Calculate Topocentric position
+            swe.set_topo(lon, lat, 0)
+            flags = swe.FLG_SWIEPH | swe.FLG_EQUATORIAL | swe.FLG_TOPOCTR
+            res = swe.calc_ut(t_jd, swe.SUN, flags)
+            # res[0] is (RA, Dec, Dist, SpeedRA, SpeedDec, SpeedDist)
+            ra = res[0][0]
+            dec = res[0][1]
+            
+            import math
+            lat_rad = math.radians(lat)
+            dec_rad = math.radians(dec)
+            
+            # Calculate GST
+            gst = swe.sidtime(t_jd)
+            # Local Sidereal Time (hours)
+            lst = gst + lon / 15.0
+            # Hour Angle (degrees)
+            ha_deg = normalize_degrees(lst * 15.0 - ra)
+            ha_rad = math.radians(ha_deg)
+            
+            sin_alt = math.sin(lat_rad) * math.sin(dec_rad) + math.cos(lat_rad) * math.cos(dec_rad) * math.cos(ha_rad)
+            # Clamp value for asin
+            if sin_alt > 1.0: sin_alt = 1.0
+            if sin_alt < -1.0: sin_alt = -1.0
+            
+            alt_rad = math.asin(sin_alt)
+            return math.degrees(alt_rad)
+
+        def find_event(start_jd, rising=True):
+            # Iterative search
+            t = start_jd
+            for _ in range(10):
+                alt = get_sun_alt(t)
+                diff = alt - TARGET_ALT
+                if abs(diff) < 0.001: # Precision ~1 sec
+                    return t
+                
+                # Correction: 1 deg ~ 4 min = 1/360 days
+                correction = -diff / 360.0 
+                if not rising: correction = -correction 
+                t += correction
+            return t
+
+        # Search for Sunrise around 6 AM
         midnight = dt.replace(hour=0, minute=0, second=0, microsecond=0)
-        jd_start = Ephemeris.get_julian_day(midnight)
+        jd_mid = Ephemeris.get_julian_day(midnight)
         
-        # swe.rise_trans expects (lon, lat, height)
-        geopos = (lon, lat, 0)
+        # Approx Sunrise: 6 AM = 0.25 days from midnight
+        rise_guess = jd_mid + 0.25
+        # Approx Sunset: 6 PM = 0.75 days from midnight
+        set_guess = jd_mid + 0.75
         
-        # Calculate Sunrise
-        # disc_center=True (Hindu sunrise is usually upper limb, but standard calc often uses center or refraction)
-        # We use standard SWIEPH flags which include refraction.
-        # 0 = transit, 1 = rise, 2 = set
-        
-        rise_res = swe.rise_trans(jd_start, swe.SUN, swe.FLG_SWIEPH, geopos)
-        set_res = swe.rise_trans(jd_start, swe.SUN, swe.FLG_SWIEPH, geopos)
+        rise_jd = find_event(rise_guess, rising=True)
+        set_jd = find_event(set_guess, rising=False)
         
         sunrise_dt = None
         sunset_dt = None
         
-        if rise_res and rise_res[1]: # rise_res[1] is rise time in JD
-             # Convert JD back to datetime
-             # Note: This returns UTC JD. We need to convert to local time.
-             # Actually swe.rise_trans returns JD in UT.
-             
-             # We need to be careful. rise_res might return a tuple.
-             # Documentation: returns ((transit, rise, set), ret_flag)
-             # Wait, pyswisseph returns a tuple of times?
-             # Let's double check standard usage.
-             pass
-
-        # Let's use a more robust approach for Rise/Set
-        # We need to find the *next* rise after midnight
-        
-        res = swe.rise_trans(jd_start, swe.SUN, swe.FLG_SWIEPH, geopos)
-        # res is ((transit, rise, set), flags)
-        
-        if res:
-            times = res[0]
-            rise_jd = times[1]
-            set_jd = times[2]
+        if rise_jd:
+            y, m, d, h_dec = swe.revjul(rise_jd)
+            h = int(h_dec); mn = int((h_dec - h) * 60); s = int(((h_dec - h) * 60 - mn) * 60)
+            sunrise_dt = datetime(y, m, d, h, mn, s, tzinfo=pytz.utc)
             
-            if rise_jd > 0:
-                y, m, d, h = swe.revjul(rise_jd)
-                # h is decimal hour
-                hour = int(h)
-                minute = int((h - hour) * 60)
-                second = int(((h - hour) * 60 - minute) * 60)
-                sunrise_dt = datetime(y, m, d, hour, minute, second, tzinfo=pytz.utc)
-                
-            if set_jd > 0:
-                y, m, d, h = swe.revjul(set_jd)
-                hour = int(h)
-                minute = int((h - hour) * 60)
-                second = int(((h - hour) * 60 - minute) * 60)
-                sunset_dt = datetime(y, m, d, hour, minute, second, tzinfo=pytz.utc)
-                
+        if set_jd:
+            y, m, d, h_dec = swe.revjul(set_jd)
+            h = int(h_dec); mn = int((h_dec - h) * 60); s = int(((h_dec - h) * 60 - mn) * 60)
+            sunset_dt = datetime(y, m, d, h, mn, s, tzinfo=pytz.utc)
+            
         return sunrise_dt, sunset_dt
