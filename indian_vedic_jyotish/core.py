@@ -26,13 +26,21 @@ class Ephemeris:
         """
         flags = swe.FLG_SWIEPH | swe.FLG_SIDEREAL
         
-        # Sun
-        sun_res = swe.calc_ut(jd, swe.SUN, flags)
-        sun_long = sun_res[0][0]
-        
-        # Moon
-        moon_res = swe.calc_ut(jd, swe.MOON, flags)
-        moon_long = moon_res[0][0]
+        try:
+            # Sun
+            sun_res = swe.calc_ut(jd, swe.SUN, flags)
+            sun_long = sun_res[0][0]
+            
+            # Moon
+            moon_res = swe.calc_ut(jd, swe.MOON, flags)
+            moon_long = moon_res[0][0]
+        except swe.Error:
+            # Fallback to Moshier Ephemeris if Swiss Ephemeris files are missing
+            flags = swe.FLG_MOSEPH | swe.FLG_SIDEREAL
+            sun_res = swe.calc_ut(jd, swe.SUN, flags)
+            sun_long = sun_res[0][0]
+            moon_res = swe.calc_ut(jd, swe.MOON, flags)
+            moon_long = moon_res[0][0]
         
         return sun_long, moon_long
 
@@ -52,7 +60,13 @@ class Ephemeris:
             # Calculate Topocentric position
             swe.set_topo(lon, lat, 0)
             flags = swe.FLG_SWIEPH | swe.FLG_EQUATORIAL | swe.FLG_TOPOCTR
-            res = swe.calc_ut(t_jd, swe.SUN, flags)
+            try:
+                res = swe.calc_ut(t_jd, swe.SUN, flags)
+            except swe.Error:
+                # Fallback to Moshier
+                flags = swe.FLG_MOSEPH | swe.FLG_EQUATORIAL | swe.FLG_TOPOCTR
+                res = swe.calc_ut(t_jd, swe.SUN, flags)
+                
             # res[0] is (RA, Dec, Dist, SpeedRA, SpeedDec, SpeedDist)
             ra = res[0][0]
             dec = res[0][1]
