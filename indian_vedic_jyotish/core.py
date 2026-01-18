@@ -3,8 +3,15 @@ import pytz
 from datetime import datetime
 from .utils import normalize_degrees
 
+import os
+
 # Set Ayanamsa to Lahiri (Chitra Paksha) - Standard for Indian Astrology
 swe.set_sid_mode(swe.SIDM_LAHIRI)
+
+# Set Ephemeris Path if provided in environment
+ephe_path = os.environ.get("SE_EPHE_PATH")
+if ephe_path:
+    swe.set_ephe_path(ephe_path)
 
 class Ephemeris:
     """
